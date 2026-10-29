@@ -2,6 +2,7 @@
  * Copyright (c) 2026 mol* contributors, licensed under MIT, See LICENSE file for more info.
  *
  * @author David Sehnal <david.sehnal@gmail.com>
+ * @author Rubén Chaves <ruben.chaves@irbbarcelona.org>
  */
 
 import fs from 'node:fs';
@@ -780,9 +781,10 @@ const expected: Record<string, unknown> = {
   'ace2 split: box': '62.049,76.941,27.882,71.887,90.831,40.835',
   'ace2 split: sphere': [67.064, 84.401, 34.51, 7.749],
   'ace2 split: half loci radius': 7.895,
-  '1grm: unit spheres': 'c1defe0f',
+  // 1grm is an NMR ensemble: its units are fit along 14 directions as frames of a trajectory (unit.md §1)
+  '1grm: unit spheres': '91c2e021',
   '1grm: box': '-10.448,-14.779,-6.382,10.421,14.756,14.354',
-  '1grm: sphere': [-0.022, 0.093, 3.901, 16.73],
+  '1grm: sphere': [0.048, -0.044, 3.501, 16.629],
   '1grm: half loci radius': 16.72,
   '1bna cell / first residue of each unit: units':
     'units=24 elements=264 rows=37017ead ops=14036e05 groups=46ce97f7 groupCount=3',

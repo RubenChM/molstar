@@ -4,6 +4,7 @@
  * @author David Sehnal <david.sehnal@gmail.com>
  * @author Alexander Rose <alexander.rose@weirdbyte.de>
  * @author Adam Midlik <midlik@gmail.com>
+ * @author Rubén Chaves <ruben.chaves@irbbarcelona.org>
  */
 
 import { SymmetryOperator } from '@molstar/core/math/geometry/symmetry-operator';
@@ -266,6 +267,11 @@ namespace Unit {
     return {};
   }
 
+  /** A frame of a trajectory of several, whose units are fit again for every frame shown (unit.md §1) */
+  function isTrajectoryFrame(model: Model) {
+    return Model.TrajectoryInfo.get(model).size > 1;
+  }
+
   function getAtomicRadiusFunc(model: Model) {
     const type_symbol = model.atomicHierarchy.atoms.type_symbol.value;
     return (i: ElementIndex) => VdwRadius(type_symbol(i));
@@ -439,7 +445,7 @@ namespace Unit {
       const radius = fast ? undefined : Model.getAtomicRadii(this.model);
       this._props.boundary = fast
         ? getFastBoundary({ x, y, z, radius, indices: this.elements })
-        : getBoundary({ x, y, z, radius, indices: this.elements });
+        : getBoundary({ x, y, z, radius, indices: this.elements }, isTrajectoryFrame(this.model));
       return this._props.boundary;
     }
 
@@ -749,7 +755,7 @@ namespace Unit {
       const radius = this.getCoarseRadii();
       this._props.boundary = Traits.is(this.traits, Trait.FastBoundary)
         ? getFastBoundary({ x, y, z, radius, indices: this.elements })
-        : getBoundary({ x, y, z, radius, indices: this.elements });
+        : getBoundary({ x, y, z, radius, indices: this.elements }, isTrajectoryFrame(this.model));
       return this._props.boundary;
     }
 

@@ -1,8 +1,9 @@
 /**
- * Copyright (c) 2018-2023 mol* contributors, licensed under MIT, See LICENSE file for more info.
+ * Copyright (c) 2018-2026 mol* contributors, licensed under MIT, See LICENSE file for more info.
  *
  * @author David Sehnal <david.sehnal@gmail.com>
  * @author Alexander Rose <alexander.rose@weirdbyte.de>
+ * @author Rubén Chaves <ruben.chaves@irbbarcelona.org>
  */
 
 import type { PositionData } from './common.js';
@@ -19,8 +20,8 @@ const v3set = Vec3.set;
 
 const boundaryHelperCoarse = new BoundaryHelper('14');
 const boundaryHelperFine = new BoundaryHelper('98');
-function getBoundaryHelper(count: number) {
-  return count > 10_000 ? boundaryHelperCoarse : boundaryHelperFine;
+function getBoundaryHelper(count: number, coarse: boolean) {
+  return coarse || count > 10_000 ? boundaryHelperCoarse : boundaryHelperFine;
 }
 
 export function getFastBoundary(data: PositionData): Boundary {
@@ -30,7 +31,12 @@ export function getFastBoundary(data: PositionData): Boundary {
 
 const p = Vec3();
 
-export function getBoundary(data: PositionData): Boundary {
+/**
+ * The sphere is fit along 98 directions up to 10,000 positions and along 14 above that,
+ * or whatever the count with `coarse`, which is faster, and whose radius may differ by a few percent.
+ * Above 250,000 positions the boundary is the one of `getFastBoundary`.
+ */
+export function getBoundary(data: PositionData, coarse = false): Boundary {
   const { x, y, z, radius, indices } = data;
   const n = OrderedSet.size(indices);
 
@@ -38,7 +44,7 @@ export function getBoundary(data: PositionData): Boundary {
     return getFastBoundary(data);
   }
 
-  const boundaryHelper = getBoundaryHelper(n);
+  const boundaryHelper = getBoundaryHelper(n, coarse);
   boundaryHelper.reset();
   for (let t = 0; t < n; t++) {
     const i = OrderedSet.getAt(indices, t);

@@ -19,6 +19,10 @@ selections) have their own. It is filled lazily by the getters of the units that
 | `bonds`                                                                                   | elements, model, coordinates |
 | `rings`, `resonance`                                                                      | `bonds`                      |
 
+`boundary` is fit along 14 directions, not 98, when the model is a frame of a trajectory of several
+(`Model.TrajectoryInfo`; `getBoundary`'s `coarse`). Why: those units are fit again for every frame shown, and the coarse
+fit takes about 40% of the time; its sphere still encloses every atom, its radius within a few percent.
+
 **The bond provider** (`unit.bondProvider`, atomic units; `unit/bonds/provider.ts`) says where the unit's intra-unit
 bonds come from. It is a constructor argument, not a static prop: fixed when the unit is made, passed on by `getChild`,
 `getCopy`, `applyOperator` and `remapModel`, and given by `Unit.create` (the built-in `BondProvider.DefaultInstance`
