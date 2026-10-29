@@ -2,6 +2,7 @@
  * Copyright (c) 2020-2026 mol* contributors, licensed under MIT, See LICENSE file for more info.
  *
  * @author Alexander Rose <alexander.rose@weirdbyte.de>
+ * @author Rubén Chaves <ruben.chaves@irbbarcelona.org>
  */
 
 import { ParamDefinition as PD } from '@molstar/core/util/param-definition';
@@ -10,7 +11,13 @@ import { Unit, type Structure, StructureElement } from '@molstar/model/model/str
 import type { Theme } from '@molstar/graphics/theme/theme';
 import { Vec3 } from '@molstar/core/math/linear-algebra';
 import { arrayEqual } from '@molstar/core/util';
-import { LinkStyle, createLinkLines, type LinkBuilderProps, EmptyLinkBuilderProps } from './util/link.js';
+import {
+  LinkStyle,
+  createLinkLines,
+  type LinkBuilderProps,
+  EmptyLinkBuilderProps,
+  updateSolidLinkLines,
+} from './util/link.js';
 import { type UnitsVisual, UnitsLinesParams, UnitsLinesVisual } from '../units-visual.js';
 import type { VisualUpdateState } from '../../util.js';
 import { BondType } from '@molstar/model/model/structure/model/types';
@@ -33,6 +40,8 @@ import { arrayIntersectionSize } from '@molstar/core/util/array';
 import type { StructureGroup } from './util/common.js';
 import { ComplexLinesParams, ComplexLinesVisual, type ComplexVisual } from '../complex-visual.js';
 import { EmptyLocationIterator } from '@molstar/graphics/geo/util/location-iterator';
+import type { IntraUnitBonds } from '@molstar/model/model/structure/structure/unit/bonds';
+import { SortedArray } from '@molstar/core/data/int';
 
 // avoiding namespace lookup improved performance in Chrome (Aug 2020)
 const isBondType = BondType.is;
@@ -142,6 +151,22 @@ function getIntraUnitBondLineBuilderProps(
   };
 }
 
+/** The bonds of a unit drawn as lines, every bond as one solid line */
+interface SolidBondLines {
+  readonly bonds: IntraUnitBonds;
+  readonly elements: StructureElement.Set;
+  readonly lineCount: number;
+  readonly props: PD.Values<IntraUnitBondLineParams>;
+}
+const solidBondLines = new WeakMap<Lines, SolidBondLines>();
+
+/** If `lines` are the same bonds of the unit drawn as solid lines, so that only their positions need to be updated */
+function canUpdateSolidBondLines(lines: Lines, unit: Unit.Atomic, props: PD.Values<IntraUnitBondLineParams>) {
+  const solid = solidBondLines.get(lines);
+  if (!solid || solid.lineCount !== lines.lineCount || solid.bonds !== unit.bonds) return false;
+  return SortedArray.areEqual(solid.elements, unit.elements) && !hasGeometryPropsChanged(props, solid.props);
+}
+
 function createIntraUnitBondLines(
   ctx: VisualContext,
   unit: Unit,
@@ -159,8 +184,23 @@ function createIntraUnitBondLines(
   if (child && !childUnit) return Lines.createEmpty(lines);
 
   const builderProps = getIntraUnitBondLineBuilderProps(unit, structure, theme, props);
-  const { lines: l, boundingSphere } = createLinkLines(ctx, builderProps, props, lines);
 
+  let result: { lines: Lines; boundingSphere?: Sphere3D };
+  if (lines && !child && canUpdateSolidBondLines(lines, unit, props)) {
+    // only the coordinates changed since the lines were made, e.g. for another frame of a trajectory
+    result = updateSolidLinkLines(builderProps.position, lines);
+  } else {
+    const { allSolid, ...created } = createLinkLines(ctx, builderProps, props, lines);
+    if (allSolid && !child && created.lines.lineCount > 0) {
+      const { lineCount } = created.lines;
+      solidBondLines.set(created.lines, { bonds: unit.bonds, elements: unit.elements, lineCount, props });
+    } else {
+      solidBondLines.delete(created.lines);
+    }
+    result = created;
+  }
+
+  const { lines: l, boundingSphere } = result;
   if (boundingSphere) {
     l.setBoundingSphere(boundingSphere);
   } else if (l.lineCount > 0) {
@@ -177,6 +217,26 @@ export const IntraUnitBondLineParams = {
   includeParent: PD.Boolean(false),
 };
 export type IntraUnitBondLineParams = typeof IntraUnitBondLineParams;
+
+function hasGeometryPropsChanged(
+  newProps: PD.Values<IntraUnitBondLineParams>,
+  currentProps: PD.Values<IntraUnitBondLineParams>,
+) {
+  return (
+    newProps.sizeFactor !== currentProps.sizeFactor ||
+    newProps.linkScale !== currentProps.linkScale ||
+    newProps.linkSpacing !== currentProps.linkSpacing ||
+    newProps.aromaticDashCount !== currentProps.aromaticDashCount ||
+    newProps.dashCount !== currentProps.dashCount ||
+    newProps.ignoreHydrogens !== currentProps.ignoreHydrogens ||
+    newProps.ignoreHydrogensVariant !== currentProps.ignoreHydrogensVariant ||
+    !arrayEqual(newProps.includeTypes, currentProps.includeTypes) ||
+    !arrayEqual(newProps.excludeTypes, currentProps.excludeTypes) ||
+    newProps.aromaticBonds !== currentProps.aromaticBonds ||
+    newProps.multipleBonds !== currentProps.multipleBonds ||
+    newProps.metalCoordination !== currentProps.metalCoordination
+  );
+}
 
 export function IntraUnitBondLineVisual(materialId: number): UnitsVisual<IntraUnitBondLineParams> {
   return UnitsLinesVisual<IntraUnitBondLineParams>(
@@ -195,19 +255,7 @@ export function IntraUnitBondLineVisual(materialId: number): UnitsVisual<IntraUn
         newStructureGroup: StructureGroup,
         currentStructureGroup: StructureGroup,
       ) => {
-        state.createGeometry =
-          newProps.sizeFactor !== currentProps.sizeFactor ||
-          newProps.linkScale !== currentProps.linkScale ||
-          newProps.linkSpacing !== currentProps.linkSpacing ||
-          newProps.aromaticDashCount !== currentProps.aromaticDashCount ||
-          newProps.dashCount !== currentProps.dashCount ||
-          newProps.ignoreHydrogens !== currentProps.ignoreHydrogens ||
-          newProps.ignoreHydrogensVariant !== currentProps.ignoreHydrogensVariant ||
-          !arrayEqual(newProps.includeTypes, currentProps.includeTypes) ||
-          !arrayEqual(newProps.excludeTypes, currentProps.excludeTypes) ||
-          newProps.aromaticBonds !== currentProps.aromaticBonds ||
-          newProps.multipleBonds !== currentProps.multipleBonds ||
-          newProps.metalCoordination !== currentProps.metalCoordination;
+        state.createGeometry = hasGeometryPropsChanged(newProps, currentProps);
 
         const newUnit = newStructureGroup.group.units[0];
         const currentUnit = currentStructureGroup.group.units[0];

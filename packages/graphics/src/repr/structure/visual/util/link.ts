@@ -6,6 +6,7 @@
  * @author Gianluca Tomasello <giagitom@gmail.com>
  * @author David Sehnal <david.sehnal@gmail.com>
  * @author Herman Bergwerf <post@hbergwerf.nl>
+ * @author Rubén Chaves <ruben.chaves@irbbarcelona.org>
  */
 
 import { Vec3 } from '@molstar/core/math/linear-algebra';
@@ -25,6 +26,7 @@ import { LinesBuilder } from '@molstar/graphics/geo/geometry/lines/lines-builder
 import { Cylinders } from '@molstar/graphics/geo/geometry/cylinders/cylinders';
 import { CylindersBuilder } from '@molstar/graphics/geo/geometry/cylinders/cylinders-builder';
 import { Sphere3D } from '@molstar/core/math/geometry/primitives/sphere3d';
+import { ValueCell } from '@molstar/core/util/value-cell';
 
 export const LinkCylinderParams = {
   linkScale: PD.Numeric(0.45, { min: 0, max: 1, step: 0.01 }),
@@ -586,16 +588,18 @@ export function createLinkCylinderImpostors(
 /**
  * Each edge is included twice to allow for coloring/picking
  * the half closer to the first vertex, i.e. vertex a.
+ *
+ * `allSolid` tells if every link is drawn as one solid line (see `updateSolidLinkLines`).
  */
 export function createLinkLines(
   ctx: VisualContext,
   linkBuilder: LinkBuilderProps,
   props: LinkLineProps,
   lines?: Lines,
-): { lines: Lines; boundingSphere?: Sphere3D } {
+): { lines: Lines; boundingSphere?: Sphere3D; allSolid: boolean } {
   const { linkCount, referencePosition, position, style, ignore } = linkBuilder;
 
-  if (!linkCount) return { lines: Lines.createEmpty(lines) };
+  if (!linkCount) return { lines: Lines.createEmpty(lines), allSolid: true };
 
   const { linkScale, linkSpacing, aromaticDashCount, dashCount } = props;
 
@@ -611,6 +615,7 @@ export function createLinkLines(
 
   const center = Vec3();
   let count = 0;
+  let allSolid = true;
 
   const aromaticOffsetFactor = 4.5;
   const multipleOffsetFactor = 3;
@@ -625,6 +630,7 @@ export function createLinkLines(
     count += 2;
 
     const linkStyle = style ? style(edgeIndex) : LinkStyle.Solid;
+    if (linkStyle !== LinkStyle.Solid) allSolid = false;
 
     if (linkStyle === LinkStyle.Solid) {
       v3scale(vm, v3add(vm, va, vb), 0.5);
@@ -733,13 +739,64 @@ export function createLinkLines(
   }
 
   const l = builder.getLines();
-  if (count === 0) return { lines: l };
+  if (count === 0) return { lines: l, allSolid };
 
   // re-use boundingSphere if it has not changed much
   Vec3.scale(center, center, 1 / count);
   if (oldBoundingSphere && Vec3.distance(center, oldBoundingSphere.center) / oldBoundingSphere.radius < 0.1) {
-    return { lines: l, boundingSphere: oldBoundingSphere };
+    return { lines: l, boundingSphere: oldBoundingSphere, allSolid };
   } else {
-    return { lines: l };
+    return { lines: l, allSolid };
+  }
+}
+
+/**
+ * Updates the positions of `lines` made by `createLinkLines` with `allSolid`, for the same links,
+ * which is faster than making them again, e.g. for every frame of a trajectory.
+ * Each line goes from the first position of its link to the middle of the link,
+ * and has the index of its link as group.
+ */
+export function updateSolidLinkLines(
+  position: LinkBuilderProps['position'],
+  lines: Lines,
+): { lines: Lines; boundingSphere?: Sphere3D } {
+  const { lineCount } = lines;
+  const oldBoundingSphere = lines.hasBoundingSphere() ? Sphere3D.clone(lines.boundingSphere) : undefined;
+
+  const groups = lines.groupBuffer.ref.value;
+  const starts = lines.startBuffer.ref.value;
+  const ends = lines.endBuffer.ref.value;
+
+  const va = Vec3();
+  const vb = Vec3();
+  const vm = Vec3();
+  const center = Vec3();
+
+  for (let i = 0; i < lineCount; ++i) {
+    position(va, vb, groups[i * 4], true);
+
+    v3add(center, center, va);
+    v3add(center, center, vb);
+
+    v3scale(vm, v3add(vm, va, vb), 0.5);
+    // the 4 vertices of a line
+    for (let j = i * 12, jl = j + 12; j < jl; j += 3) {
+      starts[j] = va[0];
+      starts[j + 1] = va[1];
+      starts[j + 2] = va[2];
+      ends[j] = vm[0];
+      ends[j + 1] = vm[1];
+      ends[j + 2] = vm[2];
+    }
+  }
+  ValueCell.update(lines.startBuffer, starts);
+  ValueCell.update(lines.endBuffer, ends);
+
+  // re-use boundingSphere if it has not changed much
+  Vec3.scale(center, center, 1 / (lineCount * 2));
+  if (oldBoundingSphere && Vec3.distance(center, oldBoundingSphere.center) / oldBoundingSphere.radius < 0.1) {
+    return { lines, boundingSphere: oldBoundingSphere };
+  } else {
+    return { lines };
   }
 }
